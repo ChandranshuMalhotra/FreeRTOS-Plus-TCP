@@ -47,6 +47,7 @@
 #include "mdio.h"
 #include "phy_dp83640.h"
 #include "sci.h"
+#include "portmacro.h"
 
 
 #if ipconfigETHERNET_DRIVER_FILTERS_FRAME_TYPES == 0
@@ -70,12 +71,11 @@ uint8   emacAddress[6U] =   {0x00U, 0x08U, 0xEEU, 0x03U, 0xA6U, 0x6CU};
 
 BaseType_t xNetworkInterfaceInitialise( void )
 {
-    BaseType_t xFirstCall = pdTRUE;
     BaseType_t xTaskCreated;
 
     if (EMACHWInit(emacAddress) == EMAC_ERR_OK)
     {
-        if( ( xFirstCall == pdTRUE ) || ( receiveTaskHandle == NULL ) )
+        if( receiveTaskHandle == NULL )
         {
             /* The handler task is created at the highest possible priority to
              * ensure the interrupt handler can return directly to it. */
@@ -89,11 +89,8 @@ BaseType_t xNetworkInterfaceInitialise( void )
             if( ( receiveTaskHandle == NULL ) || ( xTaskCreated != pdPASS ) )
             {
                 FreeRTOS_printf( ( "Failed to create the handler task." ) );
-
             }
-            /* After this, the task should not be created. */
-            else
-                xFirstCall = pdFALSE;
+
         }
 
         return pdPASS;
@@ -123,11 +120,12 @@ BaseType_t xNetworkInterfaceOutput( NetworkBufferDescriptor_t * const pxNetworkB
           xpbuf.len = MIN_PKT_LEN;
       }
 
-      taskENTER_CRITICAL();
-      {
+//      taskENTER_CRITICAL();
+//      {
           EMACTransmit(&hdkif_data[0U],&xpbuf);
-      }
-      taskEXIT_CRITICAL();
+          EMACCoreIntAck(hdkif_data[0U].emac_base, (uint32)EMAC_INT_CORE0_TX);
+//      }
+//      taskEXIT_CRITICAL();
 
       if( xReleaseAfterSend == pdTRUE )
       {
@@ -148,11 +146,12 @@ void prvEMACHandlerTask( void * pvParameters  )
     {
         ulTaskNotifyTake( pdTRUE, pdMS_TO_TICKS( 500 ) );
 
-        taskENTER_CRITICAL();
-        {
+//        taskENTER_CRITICAL();
+//        {
             EMACReceive(&hdkif_data[0U]);
-        }
-        taskEXIT_CRITICAL();
+            EMACCoreIntAck(hdkif_data[0U].emac_base, (uint32)EMAC_INT_CORE0_RX);
+//        }
+//        taskEXIT_CRITICAL();
     }
 }
 
@@ -162,6 +161,9 @@ void prvEMACHandlerTask( void * pvParameters  )
 
 void prvProcessFrame( NetworkBufferDescriptor_t * pxBufferDescriptor)
 {
+    const EthernetHeader_t * pxEthernetHeader;
+    char ucSource[ 18 ];
+    char ucDestination[ 18 ];
 
     if( pxBufferDescriptor != NULL )
     {
@@ -183,9 +185,6 @@ void prvProcessFrame( NetworkBufferDescriptor_t * pxBufferDescriptor)
         else
         {
             #if ( ( ipconfigHAS_DEBUG_PRINTF == 1 ) && defined( FreeRTOS_debug_printf ) )
-                const EthernetHeader_t * pxEthernetHeader;
-                char ucSource[ 18 ];
-                char ucDestination[ 18 ];
 
                 pxEthernetHeader = ( ( const EthernetHeader_t * ) pxBufferDescriptor->pucEthernetBuffer );
 
@@ -359,11 +358,14 @@ void EMACReceive(hdkif_t *hdkif)
  * it is responsible to notify the prvEMACHandlerTask whenever
  * a packet is received.
  */
+
 void RXTaskNotify()
 {
+
     BaseType_t needsToYield = FALSE;
     configASSERT(receiveTaskHandle != NULL);
     vTaskNotifyGiveFromISR( receiveTaskHandle, &needsToYield );
-    portYIELD_FROM_ISR( needsToYield );
+
+    //portYIELD_FROM_ISR( needsToYield );
 }
 
